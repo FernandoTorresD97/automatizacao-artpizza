@@ -1,0 +1,21 @@
+# Credenciais e configurações locais
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+# Dependências e artefatos
+node_modules/
+dist/
+target/
+*.log
+*.mv.db
+*.trace.db
+# IDE e sistema
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

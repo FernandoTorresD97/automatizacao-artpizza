@@ -1,0 +1,48 @@
+:root {
+  --preto: #111010;
+  --preto-card: #1c1a18;
+  --preto-hover: #242220;
+  --dourado: #e3a83b;
+  --dourado-claro: #f2c568;
+  --branco: #faf8f3;
+  --cinza-texto: #8f8b82;
+  --linha: #322e29;
+  --erro: #d96a4a;
+
+  --fonte-marca: 'Archivo Black', 'Arial Black', sans-serif;
+  --fonte-base: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--preto);
+  color: var(--branco);
+  font-family: var(--fonte-base);
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  font-family: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
