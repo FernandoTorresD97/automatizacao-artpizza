@@ -5,15 +5,33 @@ import KanbanBoard from './components/KanbanBoard.vue'
 import FaturamentoPanel from './components/FaturamentoPanel.vue'
 import { listarPedidosAtivos, atualizarStatusPedido, confirmarPagamentoPedido, buscarFaturamento } from './api.js'
 import { tocarAlertaNovoPedido } from './sound.js'
+import { demoMode, demo, setCredentials, clearCredentials } from './api.js'
+const authenticated = ref(demoMode)
+const username = ref('')
+const password = ref('')
+const loginError = ref('')
+const loginBusy = ref(false)
+async function login() {
+  loginBusy.value = true; loginError.value = ''
+  setCredentials(username.value, password.value)
+  try {
+    await listarPedidosAtivos()
+    password.value = ''; authenticated.value = true
+    await buscarPedidos(); await carregarFaturamento()
+  } catch (e) { clearCredentials(); loginError.value = e.message }
+  finally { loginBusy.value = false }
+}
+function logout() { clearCredentials(); authenticated.value = false; pedidos.value = []; resumoFaturamento.value = null }
+async function demoAction(reset = false) { reset ? demo.reset() : demo.create(); await buscarPedidos(); await carregarFaturamento() }
 
 const pedidos = ref([])
 const idsNovos = ref(new Set())
-const somAtivo = ref(true)
+const somAtivo = ref(false)
 const erro = ref(null)
 const abaAtiva = ref('pedidos')
 const resumoFaturamento = ref(null)
 const carregandoFaturamento = ref(false)
-const dataFaturamento = ref(new Date().toISOString().slice(0, 10))
+const dataFaturamento = ref(new Date().toLocaleDateString('en-CA'))
 
 let idsConhecidos = new Set()
 let temporizador = null
@@ -76,9 +94,8 @@ async function mudarAba(aba) {
 }
 
 onMounted(() => {
-  buscarPedidos()
-  carregarFaturamento()
-  temporizador = setInterval(buscarPedidos, 5000)
+  if (authenticated.value) { buscarPedidos(); carregarFaturamento() }
+  temporizador = setInterval(() => { if (authenticated.value) buscarPedidos() }, 5000)
 })
 
 onUnmounted(() => {
@@ -87,6 +104,23 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <section v-if="!authenticated" class="login-page">
+    <form @submit.prevent="login">
+      <p class="login-eyebrow">ART PIZZA · OPERAÇÃO</p>
+      <h1>Entre no painel</h1>
+      <p>Pedidos, produção e vendas em um só lugar.</p>
+      <label for="username">Usuário</label><input id="username" v-model="username" autocomplete="username" required />
+      <label for="password">Senha</label><input id="password" v-model="password" type="password" autocomplete="current-password" required />
+      <p v-if="loginError" role="alert">{{ loginError }}</p>
+      <button :disabled="loginBusy">{{ loginBusy ? 'Entrando…' : 'Entrar' }}</button>
+    </form>
+  </section>
+  <template v-else>
+  <div v-if="demoMode" class="demo-banner">
+    <div><strong>Demonstração interativa</strong><span>Dados fictícios salvos apenas neste navegador. Nenhum pedido, mensagem ou pagamento real.</span></div>
+    <div class="demo-actions"><button @click="demoAction()">+ Simular pedido</button><button @click="demoAction(true)">Reiniciar demo</button><a href="https://github.com/FernandoTorresD97/automatizacao-artpizza" target="_blank" rel="noopener">Ver código ↗</a></div>
+  </div>
+  <div v-else class="session-bar"><span>Sessão administrativa</span><button @click="logout">Sair</button></div>
   <TopBar
     :som-ativo="somAtivo"
     :total-pedidos="pedidos.length"
@@ -106,6 +140,7 @@ onUnmounted(() => {
     @mudar-data="dataFaturamento = $event"
     @atualizar="carregarFaturamento"
   />
+  </template>
 </template>
 
 <style scoped>

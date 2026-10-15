@@ -19,3 +19,5 @@ target/
 *.iml
 .DS_Store
 Thumbs.db
+
+!painel/.env.demo

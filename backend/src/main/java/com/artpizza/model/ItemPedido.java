@@ -52,6 +52,7 @@ public class ItemPedido {
     @Column(nullable = false)
     private Integer quantidade = 1;
 
+    @Column(length = 500)
     private String observacao;
 
     // Preço já calculado de UMA unidade deste item (tamanho + adicionais dos

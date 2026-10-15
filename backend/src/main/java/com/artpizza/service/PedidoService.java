@@ -122,6 +122,9 @@ public class PedidoService {
         Tamanho tamanho = tamanhoRepository.findById(itemDto.getTamanhoId())
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Tamanho não encontrado: " + itemDto.getTamanhoId()));
 
+        if (!Boolean.TRUE.equals(tamanho.getAtivo())) {
+            throw new RegraNegocioException("O tamanho escolhido está indisponível.");
+        }
         List<Sabor> sabores = saborRepository.findAllById(itemDto.getSaboresIds());
         if (sabores.size() != itemDto.getSaboresIds().size()) {
             throw new RecursoNaoEncontradoException("Um ou mais sabores informados não existem.");

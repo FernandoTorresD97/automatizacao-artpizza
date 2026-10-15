@@ -1,25 +1,24 @@
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME
-const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD
-
-function authHeader() {
-  if (!ADMIN_USERNAME || !ADMIN_PASSWORD) return {}
-  return { Authorization: `Basic ${btoa(`${ADMIN_USERNAME}:${ADMIN_PASSWORD}`)}` }
+import { createDemoStore } from './demo.js'
+export const demoMode = import.meta.env.VITE_DEMO_MODE === 'true'
+export const demo = demoMode ? createDemoStore(window.localStorage) : null
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+let authorization = ''
+export function setCredentials(username, password) {
+  const bytes = new TextEncoder().encode(`${username}:${password}`)
+  authorization = `Basic ${btoa(String.fromCharCode(...bytes))}`
 }
-
+export function clearCredentials() { authorization = '' }
 async function request(path, options = {}) {
+  if (demo) return demo.request(path, options)
   const response = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...authHeader(), ...options.headers },
-    ...options
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: authorization } : {}), ...options.headers }
   })
-
   if (!response.ok) {
-    const corpo = await response.json().catch(() => null)
-    throw new Error(corpo?.erro || `Erro ${response.status} ao chamar ${path}`)
+    const body = await response.json().catch(() => null)
+    throw new Error(body?.erro || (response.status === 401 ? 'Usuário ou senha inválidos.' : `Erro ${response.status} ao chamar ${path}`))
   }
-
-  if (response.status === 204) return null
-  return response.json()
+  return response.status === 204 ? null : response.json()
 }
 
 // Status que compõem o quadro ativo do painel, na ordem das colunas.

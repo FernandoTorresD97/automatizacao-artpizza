@@ -37,6 +37,11 @@ public class ApiExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "Parâmetro inválido.");
     }
 
+    @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<Object> handleConcorrencia(Exception ex) {
+        return build(HttpStatus.CONFLICT, "Este pedido foi atualizado por outro operador. Atualize o painel e tente novamente.");
+    }
+
     private ResponseEntity<Object> build(HttpStatus status, String mensagem) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("timestamp", LocalDateTime.now());
