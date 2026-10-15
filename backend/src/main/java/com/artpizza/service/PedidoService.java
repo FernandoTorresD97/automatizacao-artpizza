@@ -42,6 +42,7 @@ public class PedidoService {
     private final ProdutoRepository produtoRepository;
     private final FreteService freteService;
     private final PixService pixService;
+    private final com.artpizza.notification.OrderNotificationOutbox notificationOutbox;
 
     @Transactional
     public Pedido criarPedido(PedidoRequestDTO dto) {
@@ -53,6 +54,7 @@ public class PedidoService {
                                 .build()));
 
         Pedido pedido = Pedido.builder()
+                .emailNotificacao(dto.getEmailNotificacao())
                 .cliente(cliente)
                 .tipoEntrega(dto.getTipoEntrega())
                 .formaPagamento(dto.getFormaPagamento())
@@ -99,6 +101,7 @@ public class PedidoService {
             pedido = pedidoRepository.save(pedido);
         }
 
+        notificationOutbox.record(pedido, "CRIADO");
         return pedido;
     }
 
@@ -200,6 +203,7 @@ public class PedidoService {
 
         pedido.setStatus(novoStatus);
         pedido.setAtualizadoEm(LocalDateTime.now());
+        notificationOutbox.record(pedido, novoStatus.name());
         return pedidoRepository.save(pedido);
     }
 
@@ -215,6 +219,7 @@ public class PedidoService {
         }
         pedido.setStatus(StatusPedido.NOVO);
         pedido.setAtualizadoEm(LocalDateTime.now());
+        notificationOutbox.record(pedido, "PAGAMENTO_CONFIRMADO");
         return pedidoRepository.save(pedido);
     }
 

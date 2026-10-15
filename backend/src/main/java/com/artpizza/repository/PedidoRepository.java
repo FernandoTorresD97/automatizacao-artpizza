@@ -9,6 +9,9 @@ import java.util.Optional;
 import java.time.LocalDateTime;
 
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select p from Pedido p where p.id=:id")
+    Optional<Pedido> lockById(Long id);
     List<Pedido> findByStatusOrderByCriadoEmAsc(StatusPedido status);
     List<Pedido> findByStatusInOrderByCriadoEmAsc(List<StatusPedido> status);
     Optional<Pedido> findByPixTxId(String pixTxId);

@@ -12,6 +12,10 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<Object> handleConflito(Exception ex) {
+        return build(HttpStatus.CONFLICT, "Evento concorrente ou duplicado. Repita a mesma requisição.");
+    }
 
     @ExceptionHandler(RegraNegocioException.class)
     public ResponseEntity<Object> handleRegraNegocio(RegraNegocioException ex) {

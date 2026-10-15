@@ -10,6 +10,8 @@ A demonstração pública funciona exclusivamente no navegador, com dados fictí
 
 ## O que está implementado
 
+O [laboratório integrado](docs/LABORATORIO-INTEGRADO.md) acrescenta pagamentos fictícios, webhook de teste assinado e integração autenticada com a Notification API via outbox transacional. Sem conta em provedor: nenhum pagamento real ou sandbox externo é efetuado. A demo pública continua sem acesso ao backend.
+
 - Pedidos de pizzas e produtos, preços calculados no servidor e limites de sabores.
 - Frete por bairro, entrega ou retirada e bloqueio de itens indisponíveis.
 - Máquina de estados que impede saltos de etapas e cancelamentos após o preparo.

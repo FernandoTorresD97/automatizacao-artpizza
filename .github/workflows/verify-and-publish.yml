@@ -36,9 +36,46 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           path: painel/dist
+  integration:
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_PROJECT_NAME: artpizza-ci-${{ github.run_id }}
+      NOTIFICATION_SOURCE: ../notification-api
+      DB_PASSWORD: ci-only-database-password
+      ADMIN_USERNAME: artpizza-admin
+      ADMIN_PASSWORD: ci-only-artpizza-admin-password
+      NOTIFICATION_ADMIN_USERNAME: notification-admin
+      NOTIFICATION_ADMIN_PASSWORD: ci-only-notification-admin-password
+      NOTIFICATION_INTEGRATION_PASSWORD: ci-only-integration-password
+      RABBITMQ_PASSWORD: ci-only-rabbitmq-password
+      PAGAMENTO_SANDBOX_SECRET: ci-only-sandbox-signing-secret-more-than-32
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: artpizza
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: FernandoTorresD97/notification-api
+          ref: 9db1a9efa14509efba1a552b0bf38c07e61e4e29
+          path: notification-api
+      - name: Build and start isolated integration lab
+        working-directory: artpizza
+        run: docker compose -f compose.integration.yaml up --build -d
+      - name: Verify payment, outbox, authenticated API, RabbitMQ and SMTP
+        working-directory: artpizza
+        run: python3 scripts/verify-integration.py
+      - name: Integration logs on failure
+        if: failure()
+        working-directory: artpizza
+        run: docker compose -f compose.integration.yaml logs --no-color --tail=150
+      - name: Stop disposable CI services
+        if: always()
+        working-directory: artpizza
+        run: docker compose -f compose.integration.yaml down --volumes
   publish:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: verify
+    needs: [verify, integration]
     runs-on: ubuntu-latest
     permissions:
       pages: write

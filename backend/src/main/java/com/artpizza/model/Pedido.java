@@ -16,6 +16,8 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class Pedido {
+    @Column(name = "email_notificacao", length = 120)
+    private String emailNotificacao;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

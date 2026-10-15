@@ -27,6 +27,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/pedidos").permitAll()
                         .requestMatchers("/api/pedidos/**").hasRole("ADMIN")
                         .requestMatchers("/api/faturamento/**").hasRole("ADMIN")
+                        .requestMatchers("/api/pagamentos/sandbox/**").hasRole("ADMIN")
                         .anyRequest().denyAll())
                 .httpBasic(Customizer.withDefaults())
                 .build();

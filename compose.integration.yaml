@@ -1,0 +1,79 @@
+# Laboratório integrado. Nenhuma cobrança ou mensagem é enviada à internet.
+services:
+  art-db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: artpizza, POSTGRES_USER: artpizza, POSTGRES_PASSWORD: "${DB_PASSWORD:?Defina DB_PASSWORD}" }
+    volumes: ["integration-art-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U artpizza -d artpizza"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  notification-db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: notification_db, POSTGRES_USER: postgres, POSTGRES_PASSWORD: "${DB_PASSWORD}" }
+    volumes: ["integration-notification-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d notification_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment: { RABBITMQ_DEFAULT_USER: notification, RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD}" }
+    volumes: ["integration-rabbit-data:/var/lib/rabbitmq"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["127.0.0.1:8025:8025"]
+  notification:
+    build: "${NOTIFICATION_SOURCE:-../notification-api}"
+    depends_on:
+      notification-db: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    environment:
+      TZ: UTC
+      DB_HOST: notification-db
+      DB_PASSWORD: "${DB_PASSWORD}"
+      NOTIFICATION_ADMIN_USERNAME: "${NOTIFICATION_ADMIN_USERNAME:-notification-admin}"
+      NOTIFICATION_ADMIN_PASSWORD: "${NOTIFICATION_ADMIN_PASSWORD:?Defina NOTIFICATION_ADMIN_PASSWORD}"
+      NOTIFICATION_INTEGRATION_USERNAME: artpizza
+      NOTIFICATION_INTEGRATION_PASSWORD: "${NOTIFICATION_INTEGRATION_PASSWORD:?Defina NOTIFICATION_INTEGRATION_PASSWORD}"
+      NOTIFICATION_DELIVERY_ENABLED: 'true'
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: notification
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD}"
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_FROM: demo@example.invalid
+    ports: ["127.0.0.1:8082:8080"]
+  backend:
+    build: ./backend
+    depends_on:
+      art-db: { condition: service_healthy }
+    environment:
+      TZ: UTC
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://art-db:5432/artpizza
+      DB_USER: artpizza
+      DB_PASSWORD: "${DB_PASSWORD}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:?Defina ADMIN_USERNAME}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Defina ADMIN_PASSWORD}"
+      PIX_CHAVE: demo@example.invalid
+      WHATSAPP_ENVIAR_MENSAGENS_REAIS: 'false'
+      PAGAMENTO_WEBHOOK_ENABLED: 'false'
+      PAGAMENTO_SANDBOX_ENABLED: 'true'
+      PAGAMENTO_SANDBOX_SECRET: "${PAGAMENTO_SANDBOX_SECRET:?Defina PAGAMENTO_SANDBOX_SECRET com pelo menos 32 caracteres}"
+      NOTIFICATION_INTEGRATION_ENABLED: 'true'
+      NOTIFICATION_API_URL: http://notification:8080
+      NOTIFICATION_INTEGRATION_USERNAME: artpizza
+      NOTIFICATION_INTEGRATION_PASSWORD: "${NOTIFICATION_INTEGRATION_PASSWORD}"
+    ports: ["127.0.0.1:8081:8080"]
+volumes:
+  integration-art-data:
+  integration-notification-data:
+  integration-rabbit-data:

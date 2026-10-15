@@ -25,7 +25,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
+@SpringBootTest(properties={"pagamento.sandbox.enabled=true","pagamento.sandbox.secret=sandbox-test-signing-secret-at-least-32"})
 @AutoConfigureMockMvc
 @ActiveProfiles("prod")
 @Transactional
@@ -53,6 +53,13 @@ class PedidosIntegrationTest {
     @Autowired TamanhoRepository tamanhos;
     @Autowired SaborRepository sabores;
     @Autowired RegiaoFreteRepository fretes;
+    @Autowired com.artpizza.notification.NotificationEventRepository outbox;
+    @Autowired com.artpizza.notification.NotificationOutboxWorker outboxWorker;
+    @Autowired com.artpizza.service.PedidoService pedidoService;
+    @Autowired com.artpizza.pagamento.sandbox.SandboxPaymentService sandbox;
+    @Autowired com.artpizza.pagamento.sandbox.SandboxPaymentRepository payments;
+    @Autowired com.artpizza.pagamento.sandbox.SandboxPaymentEventRepository paymentEvents;
+    @org.springframework.boot.test.mock.mockito.MockBean com.artpizza.notification.NotificationClient notificationClient;
 
     Map<String, Object> produtoPayload() {
         Long id = produtos.findAll().getFirst().getId();
@@ -69,6 +76,90 @@ class PedidosIntegrationTest {
         mvc.perform(patch("/api/pedidos/{id}/status", id).with(httpBasic("integration-admin", "integration-password"))
             .contentType("application/json").content(json.writeValueAsString(Map.of("status", status))))
             .andExpect(status().is(expected));
+    }
+    com.artpizza.pagamento.sandbox.SandboxPayment charge() throws Exception {
+        var payload=produtoPayload();payload.put("formaPagamento","PIX");payload.put("emailNotificacao","customer@example.invalid");
+        return sandbox.create(criar(payload));
+    }
+    com.artpizza.pagamento.sandbox.SandboxPaymentService.Event event(com.artpizza.pagamento.sandbox.SandboxPayment p,String id,String status) {
+        return new com.artpizza.pagamento.sandbox.SandboxPaymentService.Event(id,p.getId(),p.getPedidoId(),p.getAmount(),"BRL",status);
+    }
+    @Test void emailOpcionalGeraEventoNoMesmoPedido() throws Exception {
+        var payload=produtoPayload();payload.put("emailNotificacao","customer@example.invalid");long id=criar(payload);
+        assertThat(outbox.findAll()).filteredOn(e->e.getPedidoId().equals(id)).singleElement().extracting(e->e.getEventType()).isEqualTo("CRIADO");
+    }
+    @Test void semEmailNaoGeraEvento() throws Exception {long antes=outbox.count();criar(produtoPayload());assertThat(outbox.count()).isEqualTo(antes);}
+    @Test void emailInvalidoEhRejeitado() throws Exception {
+        var payload=produtoPayload();payload.put("emailNotificacao","invalido");
+        mvc.perform(post("/api/pedidos").contentType("application/json").content(json.writeValueAsString(payload))).andExpect(status().isBadRequest());
+    }
+    @Test void indisponibilidadeNotificationPreservaEventoParaRetentativa() throws Exception {
+        var p=charge();var e=outbox.findAll().stream().filter(n->n.getPedidoId().equals(p.getPedidoId())).findFirst().orElseThrow();
+        org.mockito.Mockito.doThrow(new IllegalStateException("unavailable")).when(notificationClient).send(org.mockito.ArgumentMatchers.any());
+        outboxWorker.deliver(e.getId());
+        assertThat(e.getDeliveredAt()).isNull();assertThat(e.getAttempts()).isEqualTo(1);assertThat(e.getNextAttemptAt()).isAfter(java.time.LocalDateTime.now());
+        org.mockito.Mockito.reset(notificationClient);e.setNextAttemptAt(java.time.LocalDateTime.now().minusSeconds(1));outbox.saveAndFlush(e);
+        outboxWorker.deliver(e.getId());outboxWorker.deliver(e.getId());
+        assertThat(e.getDeliveredAt()).isNotNull();org.mockito.Mockito.verify(notificationClient).send(e);
+    }
+    @Test void sandboxUsaValorDoServidorERetornaMesmaCobranca() throws Exception {
+        var p=charge();assertThat(p.getAmount()).isEqualByComparingTo(pedidos.findById(p.getPedidoId()).orElseThrow().getValorTotal());
+        assertThat(sandbox.create(p.getPedidoId()).getId()).isEqualTo(p.getId());
+    }
+    @Test void aprovacaoDuplicadaNaoDuplicaConfirmacaoNemOutbox() throws Exception {
+        var p=charge();var e=event(p,"event-approved","APPROVED");sandbox.process(e);sandbox.process(e);sandbox.process(event(p,"another-event","APPROVED"));
+        assertThat(pedidos.findById(p.getPedidoId()).orElseThrow().getStatus()).isEqualTo(StatusPedido.NOVO);
+        assertThat(outbox.findAll()).filteredOn(n->n.getPedidoId().equals(p.getPedidoId()) && n.getEventType().equals("PAGAMENTO_CONFIRMADO")).hasSize(1);
+        assertThat(paymentEvents.findAll()).filteredOn(n->n.getPaymentId().equals(p.getId())).hasSize(2);
+    }
+    @Test void recusaNaoLiberaPedido() throws Exception {var p=charge();sandbox.process(event(p,"declined","DECLINED"));assertThat(pedidos.findById(p.getPedidoId()).orElseThrow().getStatus()).isEqualTo(StatusPedido.AGUARDANDO_PAGAMENTO);}
+    @Test void valorIncorretoNaoConfirma() throws Exception {
+        var p=charge();assertThatThrownBy(()->sandbox.process(new com.artpizza.pagamento.sandbox.SandboxPaymentService.Event("wrong-value",p.getId(),p.getPedidoId(),new BigDecimal("0.01"),"BRL","APPROVED"))).isInstanceOf(com.artpizza.exception.RegraNegocioException.class);
+        assertThat(paymentEvents.existsById("wrong-value")).isFalse();
+    }
+    @Test void moedaIncorretaNaoConfirma() throws Exception {
+        var p=charge();assertThatThrownBy(()->sandbox.process(new com.artpizza.pagamento.sandbox.SandboxPaymentService.Event("wrong-currency",p.getId(),p.getPedidoId(),p.getAmount(),"USD","APPROVED"))).isInstanceOf(com.artpizza.exception.RegraNegocioException.class);
+    }
+    @Test void pedidoCanceladoNaoEhLiberado() throws Exception {var p=charge();pedidoService.atualizarStatus(p.getPedidoId(),StatusPedido.CANCELADO);assertThatThrownBy(()->sandbox.process(event(p,"cancelled","APPROVED"))).isInstanceOf(com.artpizza.exception.RegraNegocioException.class);}
+    @Test void eventoReutilizadoComOutroConteudoEhRejeitado() throws Exception {var p=charge();sandbox.process(event(p,"same-id","DECLINED"));assertThatThrownBy(()->sandbox.process(event(p,"same-id","APPROVED"))).isInstanceOf(com.artpizza.exception.RegraNegocioException.class);}
+    @Test void cobrancaRecusadaNaoPodeSerAprovadaDepois() throws Exception {var p=charge();sandbox.process(event(p,"decline","DECLINED"));assertThatThrownBy(()->sandbox.process(event(p,"approve","APPROVED"))).isInstanceOf(com.artpizza.exception.RegraNegocioException.class);}
+    @Test void simulacaoExigeAdmin() throws Exception {mvc.perform(post("/api/pagamentos/sandbox").contentType("application/json").content("{\"pedidoId\":1}")).andExpect(status().isUnauthorized());}
+    @Test void webhookSemAssinaturaEhRejeitado() throws Exception {mvc.perform(post("/webhook/pagamento-sandbox").contentType("application/json").content("{}")).andExpect(status().isForbidden());}
+    @Test void webhookAssinadoConfirmaPagamento() throws Exception {
+        var p=charge();String body=json.writeValueAsString(event(p,"signed-event","APPROVED"));String ts=Long.toString(java.time.Instant.now().getEpochSecond());
+        var mac=javax.crypto.Mac.getInstance("HmacSHA256");mac.init(new javax.crypto.spec.SecretKeySpec("sandbox-test-signing-secret-at-least-32".getBytes(java.nio.charset.StandardCharsets.UTF_8),"HmacSHA256"));
+        String signature=java.util.HexFormat.of().formatHex(mac.doFinal((ts+"."+body).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        mvc.perform(post("/webhook/pagamento-sandbox").header("X-Sandbox-Timestamp",ts).header("X-Sandbox-Signature",signature).contentType("application/json").content(body)).andExpect(status().isOk());
+    }
+    @Test void webhookComAssinaturaAdulteradaEhRejeitado() throws Exception {
+        mvc.perform(post("/webhook/pagamento-sandbox").header("X-Sandbox-Timestamp",Long.toString(java.time.Instant.now().getEpochSecond()))
+            .header("X-Sandbox-Signature","0".repeat(64)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
+    }
+    @Test void webhookAntigoEhRejeitado() throws Exception {
+        mvc.perform(post("/webhook/pagamento-sandbox").header("X-Sandbox-Timestamp","1")
+            .header("X-Sandbox-Signature","0".repeat(64)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
+    }
+    @Test @Transactional(propagation=org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    void confirmacoesConcorrentesGeramUmaUnicaNotificacao() throws Exception {
+        var p=charge();var e=event(p,"concurrent-sandbox-event","APPROVED");
+        var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var first=pool.submit(()->sandbox.process(e));var second=pool.submit(()->sandbox.process(e));
+            assertThat(first.get(10,java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo("APPROVED");
+            assertThat(second.get(10,java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo("APPROVED");
+            assertThat(outbox.findAll()).filteredOn(n->n.getPedidoId().equals(p.getPedidoId()) && n.getEventType().equals("PAGAMENTO_CONFIRMADO")).hasSize(1);
+            assertThat(paymentEvents.findAll()).filteredOn(n->n.getPaymentId().equals(p.getId())).hasSize(1);
+        } finally {
+            pool.shutdownNow();
+            paymentEvents.deleteAll(paymentEvents.findAll().stream().filter(n->n.getPaymentId().equals(p.getId())).toList());
+            outbox.deleteAll(outbox.findAll().stream().filter(n->n.getPedidoId().equals(p.getPedidoId())).toList());
+            payments.deleteById(p.getId());pedidos.deleteById(p.getPedidoId());
+        }
+    }
+    @Test void pedidoInvalidoComEmailNaoGeraEvento() throws Exception {
+        long before=outbox.count();var payload=produtoPayload();payload.put("emailNotificacao","customer@example.invalid");payload.put("tipoEntrega","ENTREGA");
+        mvc.perform(post("/api/pedidos").contentType("application/json").content(json.writeValueAsString(payload))).andExpect(status().isUnprocessableEntity());
+        assertThat(outbox.count()).isEqualTo(before);
     }
     @Test void migracoesPostgresCriamCardapio() {
         assertThat(produtos.count()).isEqualTo(18);

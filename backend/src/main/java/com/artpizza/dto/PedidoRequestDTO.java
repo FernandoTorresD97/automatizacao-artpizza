@@ -18,6 +18,8 @@ import java.util.List;
 @Getter
 @Setter
 public class PedidoRequestDTO {
+    @jakarta.validation.constraints.Email @Size(max = 120)
+    private String emailNotificacao;
 
     @NotBlank @Size(max = 120)
     private String nomeCliente;

@@ -3,6 +3,14 @@ spring:
     name: art-pizza-backend
   # Defina SPRING_PROFILES_ACTIVE=dev ou prod explicitamente no ambiente.
 
+integration:
+  notification:
+    enabled: ${NOTIFICATION_INTEGRATION_ENABLED:false}
+    url: ${NOTIFICATION_API_URL:http://localhost:8080}
+    username: ${NOTIFICATION_INTEGRATION_USERNAME:}
+    password: ${NOTIFICATION_INTEGRATION_PASSWORD:}
+    channel-id: ${NOTIFICATION_CHANNEL_ID:1}
+
 admin:
   username: ${ADMIN_USERNAME:}
   password: ${ADMIN_PASSWORD:}
@@ -18,6 +26,11 @@ pix:
   chave: ${PIX_CHAVE:}
   nome-recebedor: ${PIX_NOME_RECEBEDOR:ART PIZZA}
   cidade: ${PIX_CIDADE:CRUZ DAS ALMAS}
+
+pagamento:
+  sandbox:
+    enabled: ${PAGAMENTO_SANDBOX_ENABLED:false}
+    secret: ${PAGAMENTO_SANDBOX_SECRET:}
 
 ---
 spring:
